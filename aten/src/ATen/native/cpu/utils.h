@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ATen/Parallel.h>
+#include <ATen/core/TensorAccessor.h>
 #include <ATen/cpu/vec/vec.h>
 #include <c10/util/llvmMathExtras.h>
 
@@ -8,8 +9,7 @@
 #include <fbgemm/Fbgemm.h>
 #endif
 
-namespace at {
-namespace native {
+namespace at::native {
 
 template <typename T>
 inline void _store(T* dst, at::vec::Vectorized<T> src) {
@@ -148,7 +148,7 @@ template <typename T>
 inline void transpose(int64_t M, int64_t N, const T* src, int64_t ld_src, T* dst, int64_t ld_dst) {
   for (int64_t j = 0; j < N; j++) {
     for (int64_t i = 0; i < M; i++) {
-      dst[j * ld_dst + i] = src[i * ld_src + j];
+      dst[j * ld_dst + i] = c10::load(&(src[i * ld_src + j]));
     }
   }
 }
@@ -158,6 +158,12 @@ template <>
 inline void transpose<float>(int64_t M, int64_t N, const float* src, int64_t ld_src, float* dst, int64_t ld_dst) {
   TORCH_CHECK(fbgemm::fbgemmSupportedCPU(), "Your CPU does not support FBGEMM.");
   fbgemm::transpose_simd<float>(M, N, src, ld_src, dst, ld_dst);
+}
+
+template <>
+inline void transpose<uint16_t>(int64_t M, int64_t N, const uint16_t* src, int64_t ld_src, uint16_t* dst, int64_t ld_dst) {
+  TORCH_CHECK(fbgemm::fbgemmSupportedCPU(), "Your CPU does not support FBGEMM.");
+  fbgemm::transpose_simd<uint16_t>(M, N, src, ld_src, dst, ld_dst);
 }
 #endif
 
@@ -203,5 +209,4 @@ inline void parallel_sparse_csr(
 
 } // namespace utils
 
-} // namespace native
-} // namespace at
+} // namespace at::native

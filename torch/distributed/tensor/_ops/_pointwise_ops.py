@@ -1,8 +1,9 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
-from typing import List, Sequence, Tuple
+from collections.abc import Sequence
 
 import torch
 from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.tensor._dtensor_spec import DTensorSpec
 from torch.distributed.tensor._op_schema import (
     _is_inplace_op,
     _is_out_variant_op,
@@ -21,7 +22,6 @@ from torch.distributed.tensor._ops.utils import (
     register_op_strategy,
 )
 from torch.distributed.tensor.placement_types import (
-    DTensorSpec,
     Partial,
     Placement,
     Replicate,
@@ -239,7 +239,12 @@ pointwise_ops = [
     aten.igammac.default,
     aten.igammac.out,
     aten.igammac_.default,
+    aten.isinf.default,
     aten.isnan.default,
+    aten.isneginf.default,
+    aten.isneginf.out,
+    aten.isposinf.default,
+    aten.isposinf.out,
     aten.ldexp.default,
     aten.ldexp.out,
     aten.ldexp_.default,
@@ -290,7 +295,10 @@ pointwise_ops = [
     aten.logit.out,
     aten.logit_.default,
     aten.masked_fill.Scalar,
+    aten.maximum.default,
     aten.maximum.out,
+    aten.minimum.default,
+    aten.minimum.out,
     aten.mul.Scalar,
     aten.mul.Tensor,
     aten.mul.out,
@@ -459,7 +467,7 @@ def common_pointwise_strategy(
 
     for placement_strategy in followed_strategy.strategies:
         spec_to_follow = placement_strategy.output_spec
-        out_placements: List[Placement] = []
+        out_placements: list[Placement] = []
         for placement in spec_to_follow.placements:
             if isinstance(placement, Shard):
                 shard_dim = normalize_dim(placement.dim, len(spec_to_follow.shape))
@@ -474,9 +482,9 @@ def common_pointwise_strategy(
             else:
                 out_placements.append(placement)
 
-        input_specs: List[DTensorSpec] = []
-        redistribute_costs: List[List[float]] = []
-        for idx, input_arg in enumerate(args_schema):
+        input_specs: list[DTensorSpec] = []
+        redistribute_costs: list[list[float]] = []
+        for input_arg in args_schema:
             if isinstance(input_arg, OpStrategy):
                 # every arg follow the out_placements, but need to handle broadcasting
                 input_arg_spec = input_arg.strategies[0].output_spec
@@ -580,6 +588,7 @@ for_each_ops = [
     aten._foreach_cos_.default,
     aten._foreach_log.default,
     aten._foreach_log_.default,
+    aten._amp_foreach_non_finite_check_and_unscale_.default,
 ]
 
 for_each_linearity_ops = [
@@ -610,11 +619,11 @@ def list_pointwise_strategy(
         OpStrategy: generated strategy
     """
 
-    def args_tuple_strategies(args_schema: Tuple[object, ...]) -> List[TupleStrategy]:
+    def args_tuple_strategies(args_schema: tuple[object, ...]) -> list[TupleStrategy]:
         first_arg = args_schema[0]
         assert isinstance(first_arg, TupleStrategy)
         strategy_len = len(first_arg.childs)
-        tuple_strategies: List[TupleStrategy] = []
+        tuple_strategies: list[TupleStrategy] = []
         for arg_idx, arg in enumerate(args_schema):
             if isinstance(arg, TupleStrategy):
                 # every tuple strategy should have the same length
@@ -633,10 +642,10 @@ def list_pointwise_strategy(
 
     args_strategies = args_tuple_strategies(op_schema.args_schema)
     follow_strategy: TupleStrategy = args_strategies[0]
-    list_strategy: List[OpStrategy] = []
+    list_strategy: list[OpStrategy] = []
     for child_idx, child_strtgy in enumerate(follow_strategy.childs):
         assert isinstance(child_strtgy, OpStrategy)
-        args_schema: List[StrategyType] = [
+        args_schema: list[StrategyType] = [
             arg_strategy.childs[child_idx] for arg_strategy in args_strategies
         ]
         pointwise_strategy: OpStrategy = common_pointwise_strategy(

@@ -1,12 +1,13 @@
-from typing import cast, List, Sequence, Tuple
+from collections.abc import Sequence
+from typing import cast
 
 import torch
-import torch.distributed.tensor.api as dtensor
+import torch.distributed.tensor._api as dtensor
 from torch._prims_common import ShapeType
 from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.tensor._dtensor_spec import DTensorSpec
 from torch.distributed.tensor.placement_types import (
     _StridedShard,
-    DTensorSpec,
     Partial,
     Placement,
     Replicate,
@@ -14,41 +15,9 @@ from torch.distributed.tensor.placement_types import (
 )
 
 
-# TODO: audit existing code base to see if we can safely remove this API.
-def compute_local_shape(
-    global_shape: ShapeType, mesh: DeviceMesh, placements: Sequence[Placement]
-) -> Tuple[int, ...]:
-    """
-    Compute the shape of a local shard of the given DTensor on its current
-    coordinate of the mesh.
-    """
-    my_coordinate = mesh.get_coordinate()
-
-    if my_coordinate is None:
-        # if rank not in the mesh, return empty shape
-        return (0,)
-    else:
-        local_shape = list(global_shape)  # start with global shape
-        ndim = len(global_shape)
-        for idx, placement in enumerate(placements):
-            mesh_dim_size = mesh.size(idx)
-            if isinstance(placement, Shard):
-                shard_dim = placement.dim
-                assert (
-                    shard_dim < ndim
-                ), f"Sharding dim {shard_dim} greater than tensor ndim {ndim}"
-                local_shard_size, _ = placement._local_shard_size_on_dim(
-                    local_shape[shard_dim], mesh_dim_size, my_coordinate[idx]
-                )
-                assert isinstance(local_shard_size, int)
-                local_shape[shard_dim] = local_shard_size
-
-        return tuple(local_shape)
-
-
 def compute_local_shape_and_global_offset(
     global_shape: ShapeType, mesh: DeviceMesh, placements: Sequence[Placement]
-) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
     """
     Compute the local tensor shape and the global offsets into the original tensor
     of a DTensor on its current global rank. This is useful for checkpointing purpose.
@@ -90,7 +59,7 @@ def compute_local_shape_and_global_offset(
 
     if my_coordinate is None:
         # if rank not in the mesh, return empty offset
-        return ((), ())
+        return ((0,), ())
     else:
         local_shape = list(global_shape)
         global_offset = [0] * len(global_shape)
@@ -197,7 +166,7 @@ def compute_local_shape_and_global_offset(
 
 def compute_global_tensor_info(
     tensor: torch.Tensor, mesh: DeviceMesh, placements: Sequence[Placement]
-) -> Tuple[List[int], List[int]]:
+) -> tuple[list[int], list[int]]:
     """
     Compute the global size and stride of a DTensor from the given local tensor.
     The local size is multiplited by `world_size` per Sharding dim.
@@ -277,7 +246,7 @@ def try_find_mesh_from_args(
 
 def compute_local_stride(
     global_stride: ShapeType, mesh: DeviceMesh, placements: Sequence[Placement]
-) -> Tuple[int, ...]:
+) -> tuple[int, ...]:
     """
     Compute the stride of a local tensor shard, given the global stride of the DTensor.
     NOTE: Currently this function is assuming the DTensor is evenly shardable.
